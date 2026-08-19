@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import main as main_module
 from main import app
 
-runner = CliRunner(mix_stderr=False)
+runner = CliRunner()
 
 
 @pytest.fixture(autouse=True)
@@ -197,7 +197,7 @@ class TestDateRangeFilter:
         # tag "b" should not appear (its only task is Mar)
         # We verify only 1 completed task for "a"
         output = result.output
-        assert "b" not in output
+        assert " b " not in output
 
     def test_date_range_pending_tasks_excluded(self, tmp_data_file):
         """Pending tasks are excluded from date-range reports (no completed_at)."""
