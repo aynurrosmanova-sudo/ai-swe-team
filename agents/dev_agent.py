@@ -37,7 +37,9 @@ Implement the story by extending base_app/main.py. Requirements:
 - Follow the existing code style (Typer commands, rich console output, JSON
   persistence via load_tasks/save_tasks).
 - Also write a pytest test file (test_main.py) covering the acceptance
-  criteria. The test file will be run as `pytest base_app/test_main.py` from
+  criteria. Aim for solid coverage without excessive redundancy - one clear
+  test per distinct behavior is enough, you don't need multiple near-duplicate
+  tests for minor variations. The test file will be run as `pytest base_app/test_main.py` from
   the repo root, and there is NO __init__.py in base_app, so import the app
   module as plain `import main as main_module` and `from main import app`
   (NOT `base_app.main`). Use monkeypatch to redirect `main_module.DATA_FILE`
@@ -134,7 +136,7 @@ Current base_app/main.py:
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=8000,
+        max_tokens=16000,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_message}],
     )
