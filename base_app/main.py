@@ -7,6 +7,7 @@ will later extend this with due dates, overdue detection, and reports.
 """
 
 import json
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -21,6 +22,8 @@ console = Console()
 DATA_FILE = Path(__file__).parent / "tasks.json"
 
 DATE_FORMAT = "%Y-%m-%d"
+
+UNTAGGED_LABEL = "Untagged"
 
 
 def load_tasks() -> list[dict]:
@@ -53,13 +56,26 @@ def parse_due_date(due: Optional[str]) -> Optional[str]:
         raise typer.Exit(code=1)
 
 
+def parse_date_option(value: Optional[str], option_name: str) -> Optional[datetime]:
+    """Parse a date option string into a datetime, printing an error on failure."""
+    if value is None:
+        return None
+    try:
+        return datetime.strptime(value, DATE_FORMAT)
+    except ValueError:
+        console.print(f"[red]Invalid date format for {option_name}. Use YYYY-MM-DD.[/red]")
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def add(
     title: str = typer.Argument(..., help="Title of the task"),
     due: Optional[str] = typer.Option(None, "--due", help="Due date in YYYY-MM-DD format"),
+    tags: Optional[str] = typer.Option(None, "--tags", help="Comma-separated list of tags"),
 ):
     """Add a new task."""
     due_date = parse_due_date(due)
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
     tasks = load_tasks()
     task = {
         "id": next_id(tasks),
@@ -67,13 +83,16 @@ def add(
         "done": False,
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "due_date": due_date,
+        "tags": tag_list,
+        "completed_at": None,
     }
     tasks.append(task)
     save_tasks(tasks)
+    tag_display = f" [tags: {', '.join(tag_list)}]" if tag_list else ""
     if due_date:
-        console.print(f"[green]Added task {task['id']}:[/green] {title} (due: {due_date})")
+        console.print(f"[green]Added task {task['id']}:[/green] {title} (due: {due_date}){tag_display}")
     else:
-        console.print(f"[green]Added task {task['id']}:[/green] {title}")
+        console.print(f"[green]Added task {task['id']}:[/green] {title}{tag_display}")
 
 
 @app.command(name="list")
@@ -96,12 +115,14 @@ def list_tasks(
     table.add_column("Title", style="white")
     table.add_column("Status", style="magenta")
     table.add_column("Due Date", style="blue")
+    table.add_column("Tags", style="green")
     table.add_column("Created", style="dim")
 
     for t in tasks:
         status = "[green]done[/green]" if t["done"] else "[yellow]pending[/yellow]"
         due_date = t.get("due_date") or "-"
-        table.add_row(str(t["id"]), t["title"], status, due_date, t["created_at"])
+        tags_display = ", ".join(t.get("tags") or []) or "-"
+        table.add_row(str(t["id"]), t["title"], status, due_date, tags_display, t["created_at"])
 
     console.print(table)
 
@@ -113,6 +134,7 @@ def complete(task_id: int = typer.Argument(..., help="ID of the task to complete
     for t in tasks:
         if t["id"] == task_id:
             t["done"] = True
+            t["completed_at"] = datetime.now().isoformat(timespec="seconds")
             save_tasks(tasks)
             console.print(f"[green]Marked task {task_id} as complete.[/green]")
             return
@@ -136,6 +158,7 @@ def edit(
     task_id: int = typer.Argument(..., help="ID of the task to edit"),
     due: Optional[str] = typer.Option(None, "--due", help="New due date in YYYY-MM-DD format, or 'none' to clear"),
     title: Optional[str] = typer.Option(None, "--title", help="New title for the task"),
+    tags: Optional[str] = typer.Option(None, "--tags", help="New comma-separated tags, or 'none' to clear"),
 ):
     """Edit an existing task (update title and/or due date)."""
     tasks = load_tasks()
@@ -148,6 +171,11 @@ def edit(
                     t["due_date"] = None
                 else:
                     t["due_date"] = parse_due_date(due)
+            if tags is not None:
+                if tags.lower() == "none":
+                    t["tags"] = []
+                else:
+                    t["tags"] = [tag.strip() for tag in tags.split(",") if tag.strip()]
             save_tasks(tasks)
             due_display = t.get("due_date") or "-"
             console.print(
@@ -155,6 +183,101 @@ def edit(
             )
             return
     console.print(f"[red]No task found with ID {task_id}.[/red]")
+
+
+def _build_tag_report(tasks: list[dict], from_dt: Optional[datetime], to_dt: Optional[datetime]) -> dict:
+    """
+    Aggregate tasks by tag.
+
+    For filtering by date range: a task is included in the date-filtered
+    report only if it is completed and its completion date falls within
+    [from_dt, to_dt].  When no date range is provided, all tasks are
+    included regardless of completion state.
+    """
+    # Decide which tasks to consider
+    if from_dt is not None or to_dt is not None:
+        # Date-range mode: only completed tasks whose completed_at is in range
+        filtered = []
+        for t in tasks:
+            completed_at_str = t.get("completed_at")
+            if not completed_at_str:
+                continue
+            try:
+                completed_dt = datetime.fromisoformat(completed_at_str).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+            except ValueError:
+                continue
+            if from_dt is not None and completed_dt < from_dt:
+                continue
+            if to_dt is not None and completed_dt > to_dt:
+                continue
+            filtered.append(t)
+        tasks = filtered
+    
+    # aggregation: tag -> {total, completed, pending}
+    aggregation: dict[str, dict] = defaultdict(lambda: {"total": 0, "completed": 0, "pending": 0})
+
+    for t in tasks:
+        tag_list = t.get("tags") or []
+        if not tag_list:
+            tag_list = [UNTAGGED_LABEL]
+        for tag in tag_list:
+            aggregation[tag]["total"] += 1
+            if t["done"]:
+                aggregation[tag]["completed"] += 1
+            else:
+                aggregation[tag]["pending"] += 1
+
+    return dict(aggregation)
+
+
+@app.command()
+def report(
+    by_tag: bool = typer.Option(False, "--by-tag", help="Group the report by tag"),
+    from_date: Optional[str] = typer.Option(None, "--from", help="Start date filter (YYYY-MM-DD), inclusive"),
+    to_date: Optional[str] = typer.Option(None, "--to", help="End date filter (YYYY-MM-DD), inclusive"),
+):
+    """Generate a productivity summary report."""
+    if not by_tag:
+        console.print("[yellow]Please specify a grouping option, e.g. --by-tag.[/yellow]")
+        return
+
+    from_dt = parse_date_option(from_date, "--from")
+    to_dt = parse_date_option(to_date, "--to")
+
+    tasks = load_tasks()
+    aggregation = _build_tag_report(tasks, from_dt, to_dt)
+
+    if not aggregation:
+        console.print("[yellow]No tasks found for the given criteria.[/yellow]")
+        return
+
+    title = "Productivity Report by Tag"
+    if from_date or to_date:
+        range_parts = []
+        if from_date:
+            range_parts.append(f"from {from_date}")
+        if to_date:
+            range_parts.append(f"to {to_date}")
+        title += f" ({', '.join(range_parts)})"
+
+    table = Table(title=title)
+    table.add_column("Tag", style="cyan")
+    table.add_column("Total", justify="right", style="white")
+    table.add_column("Completed", justify="right", style="green")
+    table.add_column("Pending", justify="right", style="yellow")
+    table.add_column("Completion %", justify="right", style="magenta")
+
+    for tag in sorted(aggregation.keys()):
+        data = aggregation[tag]
+        total = data["total"]
+        completed = data["completed"]
+        pending = data["pending"]
+        pct = (completed / total * 100) if total > 0 else 0.0
+        table.add_row(tag, str(total), str(completed), str(pending), f"{pct:.1f}%")
+
+    console.print(table)
 
 
 if __name__ == "__main__":
