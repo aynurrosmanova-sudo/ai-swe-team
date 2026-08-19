@@ -209,7 +209,7 @@ def main():
             print("Stopping. Fix the code manually or rerun the DEV Agent.")
             return
 
-    run(["git", "add", "-A"])
+    run(["git", "add", "base_app/main.py", "base_app/test_main.py"])
     run(["git", "commit", "-m", result["commit_message"]])
     run(["git", "push", "-u", "origin", branch_name])
 
