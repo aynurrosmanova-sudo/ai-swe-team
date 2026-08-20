@@ -43,6 +43,18 @@ LOGS_DIR = REPO_ROOT / "logs"
 load_dotenv(REPO_ROOT / ".env")
 
 
+def run_agent_interactively(script_name: str, arg: str) -> int:
+    """Run an agent script, letting it use the real terminal for input/output."""
+    print(f"\n{'=' * 60}")
+    print(f"  Running {script_name} {arg}")
+    print(f"{'=' * 60}\n")
+    result = subprocess.run(
+        [sys.executable, str(AGENTS_DIR / script_name), arg],
+        cwd=AGENTS_DIR,
+    )
+    return result.returncode
+
+
 def log_final_state(feature_request: str, story_key: str, pr_number: int) -> Path:
     """
     Step 5 of the assignment's workflow: log the final state and generate
