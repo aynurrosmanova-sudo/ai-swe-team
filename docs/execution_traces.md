@@ -61,8 +61,7 @@ Moved TASK-4 to Done.
 
 ## Cycle 2: TASK-25 -> TASK-29 - the full feedback loop
 
-This is the most instructive trace: QA caught a real logic bug, DEV fixed
-the root cause, and QA re-reviewed and approved.
+This trace shows the QA Agent identifying a logic bug, the DEV Agent fixing the root cause, and the QA Agent re-reviewing and approving the fix.
 
 ### DEV Agent implements TASK-25 ("Generate a productivity summary report by tag")
 ```
@@ -141,3 +140,4 @@ was merged into `main`, carrying both the original feature and the fix.
 | Whether to use `Task` or `Subtask` issue type | DEV (n/a - fixed in tooling, not agent judgment) | N/A |
 | How to fix the pending-tasks bug | DEV | Dual date-field logic (completed_at vs created_at) rather than dropping the date filter or excluding pending tasks entirely from the report |
 | Whether TASK-25's diff was reviewable | QA | Correctly identified a truncated diff on the first (buggy) fetch, and correctly reviewed the full diff after the QA Agent's diff-fetching was fixed |
+
