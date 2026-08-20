@@ -25,6 +25,9 @@ DATE_FORMAT = "%Y-%m-%d"
 
 UNTAGGED_LABEL = "Untagged"
 
+PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+PRIORITY_DEFAULT = "medium"
+
 
 def load_tasks() -> list[dict]:
     if not DATA_FILE.exists():
@@ -72,8 +75,15 @@ def add(
     title: str = typer.Argument(..., help="Title of the task"),
     due: Optional[str] = typer.Option(None, "--due", help="Due date in YYYY-MM-DD format"),
     tags: Optional[str] = typer.Option(None, "--tags", help="Comma-separated list of tags"),
+    priority: str = typer.Option(
+        PRIORITY_DEFAULT, "--priority", help="Priority level: high, medium, or low"
+    ),
 ):
     """Add a new task."""
+    priority = priority.lower()
+    if priority not in PRIORITY_ORDER:
+        console.print("[red]Invalid priority. Choose from: high, medium, low.[/red]")
+        raise typer.Exit(code=1)
     due_date = parse_due_date(due)
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
     tasks = load_tasks()
@@ -85,12 +95,15 @@ def add(
         "due_date": due_date,
         "tags": tag_list,
         "completed_at": None,
+        "priority": priority,
     }
     tasks.append(task)
     save_tasks(tasks)
     tag_display = f" [tags: {', '.join(tag_list)}]" if tag_list else ""
     if due_date:
-        console.print(f"[green]Added task {task['id']}:[/green] {title} (due: {due_date}){tag_display}")
+        console.print(
+            f"[green]Added task {task['id']}:[/green] {title} (due: {due_date}){tag_display}"
+        )
     else:
         console.print(f"[green]Added task {task['id']}:[/green] {title}{tag_display}")
 
@@ -99,7 +112,10 @@ def add(
 def list_tasks(
     all: bool = typer.Option(
         False, "--all", "-a", help="Show completed tasks too (default: only pending)"
-    )
+    ),
+    sort_by: Optional[str] = typer.Option(
+        None, "--sort-by", help="Sort tasks by a field, e.g. 'priority'"
+    ),
 ):
     """List tasks."""
     tasks = load_tasks()
@@ -110,9 +126,20 @@ def list_tasks(
         console.print("[yellow]No tasks found.[/yellow]")
         return
 
+    if sort_by is not None:
+        if sort_by.lower() == "priority":
+            tasks = sorted(
+                tasks,
+                key=lambda t: PRIORITY_ORDER.get(t.get("priority", PRIORITY_DEFAULT), 1),
+            )
+        else:
+            console.print(f"[red]Unknown sort field: {sort_by}. Supported: priority.[/red]")
+            raise typer.Exit(code=1)
+
     table = Table(title="Tasks")
     table.add_column("ID", justify="right", style="cyan")
     table.add_column("Title", style="white")
+    table.add_column("Priority", style="bold yellow")
     table.add_column("Status", style="magenta")
     table.add_column("Due Date", style="blue")
     table.add_column("Tags", style="green")
@@ -122,7 +149,16 @@ def list_tasks(
         status = "[green]done[/green]" if t["done"] else "[yellow]pending[/yellow]"
         due_date = t.get("due_date") or "-"
         tags_display = ", ".join(t.get("tags") or []) or "-"
-        table.add_row(str(t["id"]), t["title"], status, due_date, tags_display, t["created_at"])
+        priority = t.get("priority", PRIORITY_DEFAULT)
+        table.add_row(
+            str(t["id"]),
+            t["title"],
+            priority,
+            status,
+            due_date,
+            tags_display,
+            t["created_at"],
+        )
 
     console.print(table)
 
@@ -159,6 +195,7 @@ def edit(
     due: Optional[str] = typer.Option(None, "--due", help="New due date in YYYY-MM-DD format, or 'none' to clear"),
     title: Optional[str] = typer.Option(None, "--title", help="New title for the task"),
     tags: Optional[str] = typer.Option(None, "--tags", help="New comma-separated tags, or 'none' to clear"),
+    priority: Optional[str] = typer.Option(None, "--priority", help="New priority: high, medium, or low"),
 ):
     """Edit an existing task (update title and/or due date)."""
     tasks = load_tasks()
@@ -176,6 +213,12 @@ def edit(
                     t["tags"] = []
                 else:
                     t["tags"] = [tag.strip() for tag in tags.split(",") if tag.strip()]
+            if priority is not None:
+                priority = priority.lower()
+                if priority not in PRIORITY_ORDER:
+                    console.print("[red]Invalid priority. Choose from: high, medium, low.[/red]")
+                    raise typer.Exit(code=1)
+                t["priority"] = priority
             save_tasks(tasks)
             due_display = t.get("due_date") or "-"
             console.print(
