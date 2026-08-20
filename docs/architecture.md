@@ -24,6 +24,8 @@ flowchart TD
         O2 --> O3[Run DEV Agent]
         O3 --> O4[Find the PR<br/>DEV just opened]
         O4 --> O5[Run QA Agent]
+        O5 --> O6[Query final state<br/>from Jira + GitHub]
+        O6 --> O7[Write summary to<br/>logs/*.json + print recap]
     end
 
     subgraph BA["BA Agent (agents/ba_agent.py)"]
@@ -96,7 +98,7 @@ flowchart TD
 | `agents/ba_agent.py` | Turns a feature request into Jira Epic/Stories/Subtasks with Gherkin ACs | Anthropic API, Jira API |
 | `agents/dev_agent.py` | Implements a Story: writes code + tests, opens a PR | Anthropic API, Jira API, GitHub API, local git |
 | `agents/qa_agent.py` | Reviews a PR against the linked Story's acceptance criteria | Anthropic API, Jira API, GitHub API |
-| `orchestrator/orchestrator.py` | Chains the three agents, using Jira/GitHub APIs to hand off Story keys and PR numbers automatically | Jira API, GitHub API (subprocess-invokes the three agent scripts) |
+| `orchestrator/orchestrator.py` | Chains the three agents, using Jira/GitHub APIs to hand off Story keys and PR numbers automatically, then queries final state and writes a summary log (`logs/*.json`) | Jira API, GitHub API (subprocess-invokes the three agent scripts) |
 
 ## Data flow between agents
 

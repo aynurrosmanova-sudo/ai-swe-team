@@ -14,6 +14,9 @@ Chains the BA -> DEV -> QA agents together for one full feature cycle:
   4. Automatically finds the PR the DEV Agent just opened and runs the QA
      Agent on it. You confirm before the review is posted, same as running
      it directly.
+  5. Queries Jira and GitHub for the final state (ticket status, PR state)
+     and writes a summary to logs/<timestamp>_<story_key>.json, plus prints
+     a human-readable summary to the terminal.
 
 Each agent still runs as its own interactive script underneath - this just
 removes the manual copy-pasting of story keys and PR numbers between steps.
@@ -22,10 +25,12 @@ Usage:
     python orchestrator.py "Add due dates + overdue detection + upcoming/overdue commands"
 """
 
+import json
 import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -34,10 +39,57 @@ from jira import JIRA
 
 REPO_ROOT = Path(__file__).parent.parent
 AGENTS_DIR = REPO_ROOT / "agents"
+LOGS_DIR = REPO_ROOT / "logs"
 load_dotenv(REPO_ROOT / ".env")
 
 
-def run_agent_interactively(script_name: str, arg: str) -> int:
+def log_final_state(feature_request: str, story_key: str, pr_number: int) -> Path:
+    """
+    Step 5 of the assignment's workflow: log the final state and generate
+    a summary. Queries Jira and GitHub for the actual current state (not
+    just what we assumed happened) and writes both a machine-readable JSON
+    log and a short human-readable summary to logs/.
+    """
+    LOGS_DIR.mkdir(exist_ok=True)
+    timestamp = datetime.now()
+
+    jira = JIRA(
+        server=os.environ["JIRA_URL"],
+        basic_auth=(os.environ["JIRA_EMAIL"], os.environ["JIRA_API_TOKEN"]),
+    )
+    story = jira.issue(story_key)
+
+    gh = Github(os.environ["GITHUB_TOKEN"])
+    repo = gh.get_repo(os.environ["GITHUB_REPO"])
+    pr = repo.get_pull(pr_number)
+
+    summary = {
+        "timestamp": timestamp.isoformat(timespec="seconds"),
+        "feature_request": feature_request,
+        "story_key": story_key,
+        "story_title": story.fields.summary,
+        "story_final_status": story.fields.status.name,
+        "pr_number": pr_number,
+        "pr_url": pr.html_url,
+        "pr_state": "merged" if pr.is_merged() else pr.state,
+    }
+
+    file_stub = timestamp.strftime("%Y%m%d_%H%M%S") + f"_{story_key}"
+    json_path = LOGS_DIR / f"{file_stub}.json"
+    json_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+    print(f"\n{'=' * 60}")
+    print("  FINAL STATE SUMMARY")
+    print(f"{'=' * 60}")
+    print(f"  Feature request : {feature_request}")
+    print(f"  Story           : {story_key} - {summary['story_title']}")
+    print(f"  Story status    : {summary['story_final_status']}")
+    print(f"  Pull Request    : #{pr_number} ({summary['pr_state']})")
+    print(f"  PR URL          : {summary['pr_url']}")
+    print(f"  Log written to  : {json_path.relative_to(REPO_ROOT)}")
+    print(f"{'=' * 60}")
+
+    return json_path
     """Run an agent script, letting it use the real terminal for input/output."""
     print(f"\n{'=' * 60}")
     print(f"  Running {script_name} {arg}")
@@ -134,9 +186,7 @@ def main():
         print("QA Agent did not complete successfully.")
         return
 
-    print(f"\n{'=' * 60}")
-    print(f"  Full cycle complete for {story_key} / PR #{pr_number}")
-    print(f"{'=' * 60}")
+    log_final_state(feature_request, story_key, pr_number)
 
 
 if __name__ == "__main__":
