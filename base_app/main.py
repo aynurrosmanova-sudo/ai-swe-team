@@ -96,6 +96,7 @@ def add(
         "tags": tag_list,
         "completed_at": None,
         "priority": priority,
+        "archived": False,
     }
     tasks.append(task)
     save_tasks(tasks)
@@ -116,11 +117,22 @@ def list_tasks(
     sort_by: Optional[str] = typer.Option(
         None, "--sort-by", help="Sort tasks by a field, e.g. 'priority'"
     ),
+    include_archived: bool = typer.Option(
+        False,
+        "--include-archived",
+        help="Include archived tasks alongside active ones in the output",
+    ),
 ):
     """List tasks."""
     tasks = load_tasks()
+
+    # Filter out archived tasks unless --include-archived is set
+    if not include_archived:
+        tasks = [t for t in tasks if not t.get("archived", False)]
+
     if not all:
-        tasks = [t for t in tasks if not t["done"]]
+        # When not showing all, exclude done tasks but keep archived ones if requested
+        tasks = [t for t in tasks if not t["done"] or t.get("archived", False)]
 
     if not tasks:
         console.print("[yellow]No tasks found.[/yellow]")
@@ -146,13 +158,17 @@ def list_tasks(
     table.add_column("Created", style="dim")
 
     for t in tasks:
+        is_archived = t.get("archived", False)
         status = "[green]done[/green]" if t["done"] else "[yellow]pending[/yellow]"
+        if is_archived:
+            status += " [dim][archived][/dim]"
         due_date = t.get("due_date") or "-"
         tags_display = ", ".join(t.get("tags") or []) or "-"
         priority = t.get("priority", PRIORITY_DEFAULT)
+        title_display = t["title"]
         table.add_row(
             str(t["id"]),
-            t["title"],
+            title_display,
             priority,
             status,
             due_date,
@@ -224,6 +240,19 @@ def edit(
             console.print(
                 f"[green]Updated task {task_id}:[/green] {t['title']} (due: {due_display})"
             )
+            return
+    console.print(f"[red]No task found with ID {task_id}.[/red]")
+
+
+@app.command()
+def archive(task_id: int = typer.Argument(..., help="ID of the task to archive")):
+    """Archive a task (hides it from default list output)."""
+    tasks = load_tasks()
+    for t in tasks:
+        if t["id"] == task_id:
+            t["archived"] = True
+            save_tasks(tasks)
+            console.print(f"[green]Archived task {task_id}.[/green]")
             return
     console.print(f"[red]No task found with ID {task_id}.[/red]")
 
